@@ -6,7 +6,7 @@ import re
 import urllib.parse
 from bs4 import BeautifulSoup
 
-app = FastAPI(title="JENPNEUMASTER Live-Search API")
+app = FastAPI(title="JENPNEUMASTER Force-Calculator API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -19,150 +19,119 @@ app.add_middleware(
 class QueryModel(BaseModel):
     query: str
 
-def fetch_live_web_data(query_text: str):
-    """
-    Führt eine echte Live-Suche über das Web durch, um reale Händler-Ergebnisse,
-    Datenblatt-Informationen und Produktparameter abzugreifen.
-    """
-    encoded_query = urllib.parse.quote(query_text)
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-
-    # 1. Suche nach Datenblatt-PDFs und Händlern
-    search_url = f"https://html.duckduckgo.com/html/?q={encoded_query}+Pneumatik+Hydraulik"
-    found_merchants = []
-    pdf_url = f"https://www.google.com/search?q={encoded_query}+Datenblatt+filetype:pdf"
-    
-    detected_mfg = "Industriestandard / Airtec / Festo Derivat"
-    detected_type = "Pneumatik-Zylinder"
-    
-    try:
-        resp = requests.get(search_url, headers=headers, timeout=5)
-        if resp.status_code == 200:
-            soup = BeautifulSoup(resp.text, 'html.parser')
-            results = soup.find_all('a', class_='result__url')
-            snippets = soup.find_all('a', class_='result__snippet')
-            
-            # Textanalyse über Such-Snippets zur Extraktion von Hersteller und Typ
-            page_text = " ".join([s.get_text() for s in snippets]).upper()
-            
-            if "AIRTEC" in page_text:
-                detected_mfg = "Airtec Pneumatik"
-            elif "FESTO" in page_text:
-                detected_mfg = "Festo SE & Co. KG"
-            elif "LANDEFELD" in page_text:
-                detected_mfg = "Landefeld Industrial"
-            elif "SMC" in page_text:
-                detected_mfg = "SMC Corporation"
-
-            if "RUNDZYLINDER" in page_text:
-                detected_type = "Rundzylinder (doppeltwirkend)"
-            elif "ISO 15552" in page_text:
-                detected_type = "ISO 15552 Zylinder"
-            elif "VENTIL" in page_text or "VALVE" in page_text:
-                detected_type = "Pneumatik-Ventil"
-    except Exception as e:
-        print(f"Websearch-Fehler: {e}")
-
-    # 2. Spezifikationen extrahieren (z. B. Kolben-Ø und Hub aus Begriffen wie DSWPM 32/10)
-    kolben_match = re.search(r'\b(12|16|20|25|32|40|50|63|80|100|125|160|200)\b', query_text)
-    kolben_d = kolben_match.group(1) if kolben_match else "32"
-
-    hub_match = re.search(r'[/\-](\d{1,4})\b', query_text)
-    hub_val = hub_match.group(1) if hub_match else "10"
-
-    # Richtwerte basierend auf ISO-Standard / Datenblatt-Recherche
-    stange_d = "12" if kolben_d == "32" else ("16" if kolben_d == "40" else "20")
-    anschluss = "G 1/8\"" if kolben_d == "32" else "G 1/4\""
-    druck_range = "1,0 bis 10,0 bar"
-
-    specs = {
-        "Bauart / Typ": detected_type,
-        "Kolben-Ø": f"{kolben_d} mm",
-        "Hublänge": f"{hub_val} mm",
-        "Druckluftanschluss": anschluss,
-        "Stangendurchmesser": f"{stange_d} mm",
-        "Betriebsdruck": druck_range,
-        "Ausführung": "mit Magnetkolben (Endlagendämpfung)",
-        "Dichtungsmaterial": "NBR / PUR (Standard)"
-    }
-
-    # 3. Ersatzteile
-    spare_parts = [
-        {
-            "bezeichnung": f"Dichtsatz für Ø {kolben_d} mm",
-            "verwendung": "Verschleißteil Dichtung (Kolben/Stange)",
-            "artikelnummer": f"DS-{query_text.replace(' ', '-')}",
-            "preis": "18,70 €"
-        },
-        {
-            "bezeichnung": "Zylinderschalter / Näherungsschalter",
-            "verwendung": "Positionsrückmeldung (Typ D / SME-8M)",
-            "artikelnummer": "ZS-D-24V-2M",
-            "preis": "24,50 €"
-        },
-        {
-            "bezeichnung": "Gelenkkopf mit Innengewinde",
-            "verwendung": f"Befestigung Kolbenstange M{stange_d}x1.25",
-            "artikelnummer": f"GK-M{stange_d}",
-            "preis": "16,90 €"
-        }
-    ]
-
-    # 4. Händlerlisten mit korrekten Verlinkungen und Live-Preisen
-    merchants = [
-        {
-            "name": "jenpneumatik Shop",
-            "subtitle": "Hauseigener Fachvertrieb",
-            "price": "182,50 €",
-            "delivery": "Sofort ab Lager (1-2 Werktage)",
-            "link": f"https://www.google.com/search?q=site:jenpneumatik.de+{encoded_query}"
-        },
-        {
-            "name": "Landefeld Shop",
-            "subtitle": "Industrie-Pneumatik Partner",
-            "price": "187,54 €",
-            "delivery": "Ca. 24h Express verfügbar",
-            "link": f"https://www.landefeld.de/gruppe/de/rundzylinder-doppeltwirkend-industriestandard/{encoded_query.replace('%20', '')}"
-        },
-        {
-            "name": "RS Components",
-            "subtitle": "Industriekatalog B2B",
-            "price": "194,20 €",
-            "delivery": "Lieferzeit: 2-3 Werktage",
-            "link": f"https://de.rs-online.com/web/c/?searchTerm={encoded_query}"
-        },
-        {
-            "name": "Automation24",
-            "subtitle": "Automatisierungstechnik",
-            "price": "184,10 €",
-            "delivery": "Lieferzeit: 1-2 Werktage",
-            "link": f"https://www.automation24.de/search?q={encoded_query}"
-        },
-        {
-            "name": "Druckluft-Fachhandel",
-            "subtitle": "Fachhändler Pneumatik",
-            "price": "189,00 €",
-            "delivery": "Lieferzeit: 2-4 Werktage",
-            "link": f"https://www.google.com/search?q=site:druckluft-fachhandel.de+{encoded_query}"
-        }
-    ]
-
-    return {
-        "query": query_text,
-        "kategorie": f"Pneumatik · {detected_type}",
-        "hersteller": detected_mfg,
-        "datenblatt_pdf": pdf_url,
-        "spezifikationen": specs,
-        "ersatzteile": spare_parts,
-        "haendler": merchants
-    }
-
 @app.post("/api/analyze")
 async def analyze_component(data: QueryModel):
     artikel = data.query.strip()
     if not artikel:
         raise HTTPException(status_code=400, detail="Keine Artikelnummer angegeben.")
     
-    return fetch_live_web_data(artikel)
+    encoded_query = urllib.parse.quote(artikel)
+    upper_art = artikel.upper()
+    search_url = f"https://html.duckduckgo.com/html/?q={encoded_query}+Pneumatik+Hydraulik+Datenblatt"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    # Standardwerte (Anti-Halluzination: Standard ist "Keine Angaben")
+    detected_mfg = "Keine Angaben"
+    detected_type = "Unbekannte Komponente"
+    is_cylinder = False
+    is_hydraulic = "HYD" in upper_art or "ENERPAC" in upper_art
+    
+    kolben_d = None
+    stange_d = None
+    hub_val = "Keine Angaben"
+
+    try:
+        resp = requests.get(search_url, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            snippets = soup.find_all('a', class_='result__snippet')
+            page_text = " ".join([s.get_text() for s in snippets]).upper()
+            
+            if "AIRTEC" in page_text: detected_mfg = "Airtec"
+            elif "FESTO" in page_text: detected_mfg = "Festo"
+            elif "SMC" in page_text: detected_mfg = "SMC"
+            elif "LANDEFELD" in page_text: detected_mfg = "Landefeld (Gelistet)"
+
+            if "ZYLINDER" in page_text or "DSW" in upper_art or "DSBC" in upper_art:
+                detected_type = "Pneumatik-Zylinder" if not is_hydraulic else "Hydraulik-Zylinder"
+                is_cylinder = True
+            elif "VENTIL" in page_text or "VALVE" in page_text:
+                detected_type = "Pneumatik-Ventil"
+    except Exception as e:
+        print(f"Suchfehler: {e}")
+
+    # Fallback-Erkennung für Zylinder anhand der Artikelbezeichnung (z.B. DSWPM 32/10)
+    if "DSW" in upper_art or "DSBC" in upper_art or "DNC" in upper_art or "ADN" in upper_art:
+        is_cylinder = True
+        detected_type = "Pneumatik-Zylinder (ISO)"
+
+    # Extraktion von Kolben-Ø und Hub aus der Artikelnummer, falls vorhanden
+    dia_match = re.search(r'\b(12|16|20|25|32|40|50|63|80|100|125|160|200)\b', upper_art)
+    if dia_match:
+        kolben_d = float(dia_match.group(1))
+        # ISO Stangendurchmesser Zuordnung
+        stange_d = 6.0 if kolben_d <= 12 else (8.0 if kolben_d == 16 else (10.0 if kolben_d == 20 else (12.0 if kolben_d == 32 else (16.0 if kolben_d == 40 else 20.0))))
+
+    stroke_match = re.search(r'[/\-](\d{1,4})\b', upper_art)
+    if stroke_match:
+        hub_val = stroke_match.group(1) + " mm"
+
+    # Spezifikationen aufbauen
+    specs = {
+        "Hersteller": detected_mfg,
+        "Komponententyp": detected_type,
+        "Kolben-Durchmesser": f"{int(kolben_d)} mm" if kolben_d else "Keine Angaben",
+        "Hublänge": hub_val,
+        "Stangendurchmesser": f"{int(stange_d)} mm" if stange_d else "Keine Angaben",
+        "Betriebsdruck max.": "10 bar (Pneumatik)" if not is_hydraulic else "210 bar (Hydraulik)"
+    }
+
+    spare_parts = [
+        {
+            "bezeichnung": f"Dichtsatz für Kolben-Ø {int(kolben_d)} mm" if kolben_d else "Standard Dichtsatz",
+            "verwendung": "Verschleißteil-Kit",
+            "artikelnummer": f"DS-{artikel.replace(' ', '-')}",
+            "preis": "Auf Anfrage / Im Shop prüfen"
+        }
+    ]
+
+    merchants = [
+        {
+            "name": "jenpneumatik Shop",
+            "subtitle": "Hauseigener Fachvertrieb",
+            "price": "Prüfung ausstehend",
+            "delivery": "Auf Anfrage",
+            "link": f"https://www.google.com/search?q=site:jenpneumatik.de+{encoded_query}"
+        },
+        {
+            "name": "Landefeld Shop",
+            "subtitle": "Partner für Pneumatik & Hydraulik",
+            "price": "Im Shop prüfen",
+            "delivery": "Live-Prüfung",
+            "link": f"https://www.landefeld.de/gruppe/de/?q={encoded_query}"
+        },
+        {
+            "name": "RS Components",
+            "subtitle": "B2B-Katalog",
+            "price": "Direkt im Shop",
+            "delivery": "Katalogprüfung",
+            "link": f"https://de.rs-online.com/web/c/?searchTerm={encoded_query}"
+        }
+    ]
+
+    return {
+        "query": artikel,
+        "kategorie": detected_type,
+        "hersteller": detected_mfg,
+        "is_cylinder": is_cylinder,
+        "is_hydraulic": is_hydraulic,
+        "kolben_mm": kolben_d,
+        "stange_mm": stange_d,
+        "datenblatt_pdf": f"https://www.google.com/search?q={encoded_query}+Datenblatt+filetype:pdf",
+        "spezifikationen": specs,
+        "ersatzteile": spare_parts,
+        "haendler": merchants
+    }
